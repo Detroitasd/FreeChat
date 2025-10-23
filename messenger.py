@@ -787,6 +787,5 @@ def handle_webrtc_ice_candidate(data):
         }, room=active_users[to_user_id])
 
 if __name__ == '__main__':
-    print("Запуск мессенджера...")
-    print("Откройте http://localhost:5000 в браузере")
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
