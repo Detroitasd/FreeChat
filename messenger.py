@@ -17,7 +17,7 @@ def is_mobile_device(user_agent):
     user_agent_lower = user_agent.lower()
     return any(keyword in user_agent_lower for keyword in mobile_keywords)
 
-# Менеджер пользователей должен быть определен ПЕРЕД init_db()
+# Менеджер пользователей
 class UserManager:
     @staticmethod
     def hash_password(password):
@@ -84,7 +84,7 @@ class UserManager:
         conn.close()
         return messages
 
-# Теперь init_db() может использовать UserManager
+# База данных
 def init_db():
     conn = sqlite3.connect('messenger.db', check_same_thread=False)
     c = conn.cursor()
@@ -101,7 +101,7 @@ def init_db():
                   message TEXT NOT NULL,
                   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # Добавляем тестовых пользователей если их нет
+    # Добавляем тестовых пользователей
     test_users = [
         ('alex', 'alex@test.com', UserManager.hash_password('123456')),
         ('maria', 'maria@test.com', UserManager.hash_password('123456')),
@@ -120,14 +120,14 @@ def init_db():
 
 init_db()
 
-# HTML шаблоны
+# HTML шаблоны (оставляем как есть)
 LOGIN_HTML = '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Вход - WebMessenger</title>
+    <title>Вход - Мессенджер</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -199,7 +199,7 @@ REGISTER_HTML = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Регистрация - WebMessenger</title>
+    <title>Регистрация - Мессенджер</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -268,7 +268,7 @@ REGISTER_HTML = '''
 </html>
 '''
 
-# Шаблон для ПК
+# Шаблон для ПК с исправленными звонками
 MESSENGER_HTML_PC = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -358,6 +358,80 @@ MESSENGER_HTML_PC = '''
             border-radius: 25px; cursor: pointer;
         }
         .send-btn:hover { background: #5a6fd8; }
+        .call-window {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #1a1a1a; z-index: 1000; display: none; flex-direction: column;
+        }
+        .call-header { 
+            padding: 20px; color: white; text-align: center;
+            background: rgba(0,0,0,0.5); 
+        }
+        .video-container { 
+            flex: 1; display: flex; justify-content: center; align-items: center;
+            position: relative; padding: 20px;
+        }
+        .video-wrapper { 
+            position: relative; margin: 10px; 
+            border-radius: 10px; overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .local-video-wrapper {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 300px; height: 200px; z-index: 10;
+        }
+        .remote-video-wrapper {
+            width: 100%; max-width: 1200px; height: 80vh;
+        }
+        video { 
+            width: 100%; height: 100%; object-fit: cover;
+            background: #000;
+        }
+        .video-placeholder {
+            width: 100%; height: 100%; background: #2a2a2a;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 24px;
+        }
+        .call-controls { 
+            padding: 30px; display: flex; justify-content: center; gap: 20px;
+            background: rgba(0,0,0,0.5);
+        }
+        .control-btn { 
+            width: 70px; height: 70px; border-radius: 50%; border: none;
+            cursor: pointer; display: flex; align-items: center; 
+            justify-content: center; font-size: 24px;
+            transition: all 0.3s ease;
+        }
+        .control-btn:hover { transform: scale(1.1); }
+        .control-btn.end-call { background: #dc3545; color: white; }
+        .control-btn.toggle-video { background: #6c757d; color: white; }
+        .control-btn.toggle-audio { background: #17a2b8; color: white; }
+        .control-btn.active { background: #28a745; }
+        .control-btn.inactive { background: #dc3545; }
+        .caller-info { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; text-align: center; z-index: 5;
+        }
+        .caller-avatar {
+            width: 120px; height: 120px; border-radius: 50%; background: #667eea;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 48px; color: white; margin: 0 auto 20px;
+        }
+        .incoming-call-window {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; padding: 40px; border-radius: 20px; 
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 1001; 
+            text-align: center; display: none;
+        }
+        .incoming-call-buttons { 
+            display: flex; gap: 20px; justify-content: center; margin-top: 30px;
+        }
+        .incoming-call-btn { 
+            width: 60px; height: 60px; border-radius: 50%; border: none;
+            cursor: pointer; display: flex; align-items: center;
+            justify-content: center; font-size: 24px;
+        }
+        .incoming-call-btn.accept { background: #28a745; color: white; }
+        .incoming-call-btn.reject { background: #dc3545; color: white; }
         .loading { 
             text-align: center; color: #6c757d; padding: 20px;
         }
@@ -400,22 +474,82 @@ MESSENGER_HTML_PC = '''
         </div>
     </div>
 
+    <!-- Окно входящего звонка -->
+    <div class="incoming-call-window" id="incomingCallWindow">
+        <div class="caller-avatar" id="incomingCallAvatar"></div>
+        <h3>Входящий звонок</h3>
+        <div id="callerName" style="font-size: 20px; margin: 10px 0;"></div>
+        <div class="incoming-call-buttons">
+            <button class="incoming-call-btn accept" onclick="acceptCall()">📞</button>
+            <button class="incoming-call-btn reject" onclick="rejectCall()">✖</button>
+        </div>
+    </div>
+
+    <!-- Основное окно звонка -->
+    <div class="call-window" id="activeCallWindow">
+        <div class="call-header">
+            <h3 id="callStatus">Идет звонок с <span id="remoteUserName"></span></h3>
+            <div id="callTimer">00:00</div>
+        </div>
+        
+        <div class="video-container">
+            <!-- Удаленное видео -->
+            <div class="video-wrapper remote-video-wrapper">
+                <video id="remoteVideo" autoplay></video>
+                <div class="video-placeholder" id="remoteVideoPlaceholder">
+                    <div class="caller-info">
+                        <div class="caller-avatar" id="remoteUserAvatar"></div>
+                        <div id="remoteUserNameText" style="font-size: 24px; margin-top: 20px;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Локальное видео -->
+            <div class="video-wrapper local-video-wrapper">
+                <video id="localVideo" autoplay muted></video>
+                <div class="video-placeholder" id="localVideoPlaceholder" style="display: none;">
+                    <div>Камера выключена</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="call-controls">
+            <button class="control-btn toggle-audio active" id="toggleAudioBtn" onclick="toggleAudio()">
+                🎤
+            </button>
+            <button class="control-btn toggle-video active" id="toggleVideoBtn" onclick="toggleVideo()">
+                📹
+            </button>
+            <button class="control-btn end-call" onclick="endCall()">
+                ✖
+            </button>
+        </div>
+    </div>
+
     <script>
         const socket = io();
         let currentContact = null;
+        let currentCallId = null;
+        let localStream = null;
+        let peerConnection = null;
+        let isAudioEnabled = true;
+        let isVideoEnabled = false;
+        let callStartTime = null;
+        let callTimerInterval = null;
+        
+        // Улучшенная конфигурация WebRTC
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+        };
 
         async function loadContacts() {
             try {
-                console.log('Загрузка контактов...');
                 const response = await fetch('/api/users');
-                
-                if (!response.ok) {
-                    throw new Error('Ошибка загрузки контактов');
-                }
-                
                 const contacts = await response.json();
-                console.log('Получены контакты:', contacts);
-                
                 const contactsList = document.getElementById('contactsList');
                 
                 if (contacts.length === 0) {
@@ -494,11 +628,221 @@ MESSENGER_HTML_PC = '''
             }
         }
 
-        document.getElementById('callButton').addEventListener('click', function() {
+        document.getElementById('callButton').addEventListener('click', startCall);
+
+        function startCall() {
             if (currentContact) {
-                alert('Функция звонка для: ' + currentContact.username);
+                socket.emit('start_call', { to_user_id: currentContact.id });
+                showActiveCallWindow();
+                startWebRTC(false);
             }
-        });
+        }
+
+        function showIncomingCallWindow(callerName, callId) {
+            currentCallId = callId;
+            document.getElementById('callerName').textContent = callerName;
+            document.getElementById('incomingCallAvatar').textContent = callerName[0].toUpperCase();
+            document.getElementById('incomingCallWindow').style.display = 'block';
+        }
+
+        function acceptCall() {
+            socket.emit('accept_call', { call_id: currentCallId });
+            document.getElementById('incomingCallWindow').style.display = 'none';
+            showActiveCallWindow();
+            startWebRTC(true);
+        }
+
+        function rejectCall() {
+            socket.emit('reject_call', { call_id: currentCallId });
+            document.getElementById('incomingCallWindow').style.display = 'none';
+            currentCallId = null;
+        }
+
+        function showActiveCallWindow() {
+            document.getElementById('activeCallWindow').style.display = 'flex';
+            if (currentContact) {
+                document.getElementById('remoteUserName').textContent = currentContact.username;
+                document.getElementById('remoteUserNameText').textContent = currentContact.username;
+                document.getElementById('remoteUserAvatar').textContent = currentContact.username[0].toUpperCase();
+            }
+            startCallTimer();
+        }
+
+        function startCallTimer() {
+            callStartTime = new Date();
+            callTimerInterval = setInterval(() => {
+                const now = new Date();
+                const diff = new Date(now - callStartTime);
+                const minutes = diff.getMinutes().toString().padStart(2, '0');
+                const seconds = diff.getSeconds().toString().padStart(2, '0');
+                document.getElementById('callTimer').textContent = `${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        function stopCallTimer() {
+            if (callTimerInterval) {
+                clearInterval(callTimerInterval);
+                callTimerInterval = null;
+            }
+        }
+
+        function toggleAudio() {
+            if (localStream) {
+                const audioTracks = localStream.getAudioTracks();
+                if (audioTracks.length > 0) {
+                    isAudioEnabled = !isAudioEnabled;
+                    audioTracks[0].enabled = isAudioEnabled;
+                    const btn = document.getElementById('toggleAudioBtn');
+                    if (isAudioEnabled) {
+                        btn.classList.add('active');
+                        btn.classList.remove('inactive');
+                    } else {
+                        btn.classList.remove('active');
+                        btn.classList.add('inactive');
+                    }
+                }
+            }
+        }
+
+        function toggleVideo() {
+            if (localStream) {
+                const videoTracks = localStream.getVideoTracks();
+                if (videoTracks.length > 0) {
+                    isVideoEnabled = !isVideoEnabled;
+                    videoTracks[0].enabled = isVideoEnabled;
+                    
+                    const btn = document.getElementById('toggleVideoBtn');
+                    const localVideo = document.getElementById('localVideo');
+                    const localVideoPlaceholder = document.getElementById('localVideoPlaceholder');
+                    
+                    if (isVideoEnabled) {
+                        btn.classList.add('active');
+                        btn.classList.remove('inactive');
+                        localVideo.style.display = 'block';
+                        localVideoPlaceholder.style.display = 'none';
+                    } else {
+                        btn.classList.remove('active');
+                        btn.classList.add('inactive');
+                        localVideo.style.display = 'none';
+                        localVideoPlaceholder.style.display = 'flex';
+                    }
+                }
+            }
+        }
+
+        function endCall() {
+            socket.emit('end_call', { call_id: currentCallId });
+            document.getElementById('activeCallWindow').style.display = 'none';
+            stopCallTimer();
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            currentCallId = null;
+            resetControlButtons();
+        }
+
+        function resetControlButtons() {
+            document.getElementById('toggleAudioBtn').classList.add('active');
+            document.getElementById('toggleAudioBtn').classList.remove('inactive');
+            document.getElementById('toggleVideoBtn').classList.add('active');
+            document.getElementById('toggleVideoBtn').classList.remove('inactive');
+            isAudioEnabled = true;
+            isVideoEnabled = false;
+        }
+
+        async function startWebRTC(isAnswerer = false) {
+            try {
+                console.log('Starting WebRTC connection...');
+                
+                // Запрашиваем медиа
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true,
+                    audio: true 
+                });
+                
+                console.log('Media stream obtained');
+                
+                // Выключаем видео по умолчанию
+                const videoTracks = localStream.getVideoTracks();
+                if (videoTracks.length > 0) {
+                    videoTracks[0].enabled = false;
+                    isVideoEnabled = false;
+                    
+                    const localVideo = document.getElementById('localVideo');
+                    const localVideoPlaceholder = document.getElementById('localVideoPlaceholder');
+                    const toggleVideoBtn = document.getElementById('toggleVideoBtn');
+                    
+                    localVideo.style.display = 'none';
+                    localVideoPlaceholder.style.display = 'flex';
+                    toggleVideoBtn.classList.remove('active');
+                    toggleVideoBtn.classList.add('inactive');
+                }
+                
+                document.getElementById('localVideo').srcObject = localStream;
+                
+                // Создаем новое соединение
+                peerConnection = new RTCPeerConnection(configuration);
+                console.log('PeerConnection created');
+                
+                // Добавляем треки в соединение
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                    console.log('Added track:', track.kind);
+                });
+                
+                // Обработчик входящих потоков
+                peerConnection.ontrack = (event) => {
+                    console.log('Received remote track');
+                    const remoteVideo = document.getElementById('remoteVideo');
+                    const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
+                    
+                    if (event.streams && event.streams[0]) {
+                        remoteVideo.srcObject = event.streams[0];
+                        remoteVideo.style.display = 'block';
+                        remoteVideoPlaceholder.style.display = 'none';
+                        console.log('Remote video stream set');
+                    }
+                };
+                
+                // Обработчик ICE кандидатов
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate && currentContact) {
+                        console.log('Sending ICE candidate');
+                        socket.emit('webrtc_ice_candidate', {
+                            to_user_id: currentContact.id,
+                            candidate: event.candidate
+                        });
+                    }
+                };
+                
+                if (!isAnswerer) {
+                    // Создаем оффер
+                    const offer = await peerConnection.createOffer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: true
+                    });
+                    console.log('Offer created');
+                    
+                    await peerConnection.setLocalDescription(offer);
+                    console.log('Local description set');
+                    
+                    socket.emit('webrtc_offer', { 
+                        to_user_id: currentContact.id, 
+                        offer: offer 
+                    });
+                    console.log('Offer sent');
+                }
+                
+            } catch (error) {
+                console.error('Error starting WebRTC:', error);
+                alert('Ошибка при запуске звонка: ' + error.message);
+            }
+        }
 
         socket.on('receive_message', (data) => {
             if (currentContact && data.from_user_id === currentContact.id) {
@@ -510,6 +854,88 @@ MESSENGER_HTML_PC = '''
                     </div>
                 `;
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        });
+
+        socket.on('incoming_call', (data) => {
+            console.log('Incoming call from:', data.from_username);
+            showIncomingCallWindow(data.from_username, data.call_id);
+        });
+
+        socket.on('call_accepted', (data) => {
+            console.log('Call accepted by remote user');
+        });
+
+        socket.on('call_rejected', () => {
+            alert('Звонок отклонен');
+            document.getElementById('activeCallWindow').style.display = 'none';
+            stopCallTimer();
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+        });
+
+        socket.on('call_ended', () => {
+            console.log('Call ended by remote user');
+            document.getElementById('activeCallWindow').style.display = 'none';
+            stopCallTimer();
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+        });
+
+        socket.on('webrtc_offer', async (data) => {
+            console.log('Received WebRTC offer from:', data.from_user_id);
+            if (!peerConnection && currentContact && data.from_user_id === currentContact.id) {
+                await startWebRTC(true);
+            }
+            if (peerConnection) {
+                try {
+                    await peerConnection.setRemoteDescription(data.offer);
+                    console.log('Remote description set from offer');
+                    
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    console.log('Answer created and local description set');
+                    
+                    socket.emit('webrtc_answer', { 
+                        to_user_id: data.from_user_id, 
+                        answer: answer 
+                    });
+                    console.log('Answer sent');
+                } catch (error) {
+                    console.error('Error handling offer:', error);
+                }
+            }
+        });
+
+        socket.on('webrtc_answer', async (data) => {
+            console.log('Received WebRTC answer from:', data.from_user_id);
+            if (peerConnection) {
+                try {
+                    await peerConnection.setRemoteDescription(data.answer);
+                    console.log('Remote description set from answer');
+                } catch (error) {
+                    console.error('Error handling answer:', error);
+                }
+            }
+        });
+
+        socket.on('webrtc_ice_candidate', async (data) => {
+            console.log('Received ICE candidate from:', data.from_user_id);
+            if (peerConnection) {
+                try {
+                    await peerConnection.addIceCandidate(data.candidate);
+                    console.log('ICE candidate added');
+                } catch (error) {
+                    console.error('Error adding ICE candidate:', error);
+                }
             }
         });
 
@@ -530,7 +956,7 @@ MESSENGER_HTML_PC = '''
 </html>
 '''
 
-# Шаблон для мобильных устройств
+# Шаблон для мобильных устройств (упрощенный)
 MESSENGER_HTML_MOBILE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -553,7 +979,6 @@ MESSENGER_HTML_MOBILE = '''
         .header { 
             padding: 15px; background: white; border-bottom: 1px solid #e9ecef;
             display: flex; justify-content: space-between; align-items: center;
-            position: sticky; top: 0; z-index: 100;
         }
         .user-info { display: flex; align-items: center; gap: 10px; }
         .avatar { width: 40px; height: 40px; border-radius: 50%; background: #667eea; 
@@ -565,17 +990,10 @@ MESSENGER_HTML_MOBILE = '''
         .contacts { flex: 1; overflow-y: auto; padding: 10px; }
         .contact { 
             padding: 15px; border-radius: 10px; margin-bottom: 5px; cursor: pointer;
-            display: flex; align-items: center; gap: 10px; transition: background 0.2s;
+            display: flex; align-items: center; gap: 10px;
         }
-        .contact:hover { background: #e9ecef; }
         .contact.active { background: #667eea; color: white; }
-        .online-indicator { 
-            width: 8px; height: 8px; border-radius: 50%; background: #28a745;
-            margin-left: auto;
-        }
-        .loading { 
-            text-align: center; color: #6c757d; padding: 20px;
-        }
+        .loading { text-align: center; color: #6c757d; padding: 20px; }
     </style>
 </head>
 <body>
@@ -599,16 +1017,8 @@ MESSENGER_HTML_MOBILE = '''
     <script>
         async function loadContacts() {
             try {
-                console.log('Загрузка контактов...');
                 const response = await fetch('/api/users');
-                
-                if (!response.ok) {
-                    throw new Error('Ошибка загрузки контактов');
-                }
-                
                 const contacts = await response.json();
-                console.log('Получены контакты:', contacts);
-                
                 const contactsList = document.getElementById('contactsList');
                 
                 if (contacts.length === 0) {
@@ -617,25 +1027,18 @@ MESSENGER_HTML_MOBILE = '''
                 }
                 
                 contactsList.innerHTML = contacts.map(contact => `
-                    <div class="contact" onclick="selectContact('${contact.username}')">
+                    <div class="contact" onclick="alert('Выбран: ${contact.username}')">
                         <div class="avatar">${contact.username[0].toUpperCase()}</div>
                         <div>${contact.username}</div>
-                        <div class="online-indicator" style="display: none;" id="online-${contact.id}"></div>
                     </div>
                 `).join('');
                 
             } catch (error) {
-                console.error('Ошибка загрузки контактов:', error);
                 document.getElementById('contactsList').innerHTML = 
-                    '<div class="loading">Ошибка загрузки контактов</div>';
+                    '<div class="loading">Ошибка загрузки</div>';
             }
         }
 
-        function selectContact(username) {
-            alert('Выбран контакт: ' + username);
-        }
-
-        // Загружаем контакты при загрузке страницы
         document.addEventListener('DOMContentLoaded', loadContacts);
     </script>
 </body>
@@ -682,11 +1085,9 @@ def messenger():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    # Определяем тип устройства
     user_agent = request.headers.get('User-Agent', '')
     is_mobile = is_mobile_device(user_agent)
     
-    # Выбираем соответствующий шаблон
     if is_mobile:
         return render_template_string(MESSENGER_HTML_MOBILE, username=session['username'])
     else:
@@ -701,10 +1102,7 @@ def logout():
 def get_users():
     if 'user_id' not in session:
         return jsonify({'error': 'Not authorized'}), 401
-    
-    # Исключаем текущего пользователя из списка контактов
     users = [user for user in UserManager.get_all_users() if user['id'] != session['user_id']]
-    print(f"Возвращаем контакты для пользователя {session['username']}: {users}")
     return jsonify(users)
 
 @app.route('/api/messages/<int:other_user_id>')
@@ -721,7 +1119,6 @@ def handle_connect():
         user_id = session['user_id']
         username = session['username']
         active_users[user_id] = request.sid
-        print(f"Пользователь {username} подключился")
         emit('user_online', {'user_id': user_id, 'username': username}, broadcast=True)
 
 @socketio.on('disconnect')
@@ -730,7 +1127,6 @@ def handle_disconnect():
     if user_id and user_id in active_users:
         username = session['username']
         del active_users[user_id]
-        print(f"Пользователь {username} отключился")
         emit('user_offline', {'user_id': user_id, 'username': username}, broadcast=True)
 
 @socketio.on('send_message')
@@ -747,6 +1143,84 @@ def handle_send_message(data):
             'from_username': session['username'],
             'message': message,
             'timestamp': datetime.now().strftime('%H:%M')
+        }, room=active_users[to_user_id])
+
+@socketio.on('start_call')
+def handle_start_call(data):
+    to_user_id = data['to_user_id']
+    from_user_id = session['user_id']
+    
+    call_id = secrets.token_hex(16)
+    active_calls[call_id] = {
+        'from_user_id': from_user_id,
+        'to_user_id': to_user_id,
+        'from_username': session['username']
+    }
+    
+    if to_user_id in active_users:
+        emit('incoming_call', {
+            'call_id': call_id,
+            'from_user_id': from_user_id,
+            'from_username': session['username']
+        }, room=active_users[to_user_id])
+
+@socketio.on('accept_call')
+def handle_accept_call(data):
+    call_id = data['call_id']
+    if call_id in active_calls:
+        call_data = active_calls[call_id]
+        from_user_id = call_data['from_user_id']
+        if from_user_id in active_users:
+            emit('call_accepted', {'call_id': call_id}, room=active_users[from_user_id])
+
+@socketio.on('reject_call')
+def handle_reject_call(data):
+    call_id = data['call_id']
+    if call_id in active_calls:
+        call_data = active_calls[call_id]
+        from_user_id = call_data['from_user_id']
+        if from_user_id in active_users:
+            emit('call_rejected', room=active_users[from_user_id])
+        del active_calls[call_id]
+
+@socketio.on('end_call')
+def handle_end_call(data):
+    call_id = data['call_id']
+    if call_id in active_calls:
+        call_data = active_calls[call_id]
+        from_user_id = call_data['from_user_id']
+        to_user_id = call_data['to_user_id']
+        if from_user_id in active_users:
+            emit('call_ended', room=active_users[from_user_id])
+        if to_user_id in active_users:
+            emit('call_ended', room=active_users[to_user_id])
+        del active_calls[call_id]
+
+@socketio.on('webrtc_offer')
+def handle_webrtc_offer(data):
+    to_user_id = data['to_user_id']
+    if to_user_id in active_users:
+        emit('webrtc_offer', {
+            'offer': data['offer'],
+            'from_user_id': session['user_id']
+        }, room=active_users[to_user_id])
+
+@socketio.on('webrtc_answer')
+def handle_webrtc_answer(data):
+    to_user_id = data['to_user_id']
+    if to_user_id in active_users:
+        emit('webrtc_answer', {
+            'answer': data['answer'],
+            'from_user_id': session['user_id']
+        }, room=active_users[to_user_id])
+
+@socketio.on('webrtc_ice_candidate')
+def handle_webrtc_ice_candidate(data):
+    to_user_id = data['to_user_id']
+    if to_user_id in active_users:
+        emit('webrtc_ice_candidate', {
+            'candidate': data['candidate'],
+            'from_user_id': session['user_id']
         }, room=active_users[to_user_id])
 
 if __name__ == '__main__':
