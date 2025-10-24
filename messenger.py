@@ -425,10 +425,20 @@ MESSENGER_HTML_PC = '''
         let localStream = null;
         let peerConnection = null;
         let isAudioEnabled = true;
-        let isVideoEnabled = false; // Камера выключена по умолчанию
+        let isVideoEnabled = false;
         let callStartTime = null;
         let callTimerInterval = null;
-        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        
+        // Улучшенная конфигурация WebRTC
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
+            ]
+        };
 
         async function loadContacts() {
             const response = await fetch('/api/users');
@@ -606,8 +616,15 @@ MESSENGER_HTML_PC = '''
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
             currentCallId = null;
-            // Сбрасываем состояние кнопок
+            resetControlButtons();
+        }
+
+        function resetControlButtons() {
             document.getElementById('toggleAudioBtn').classList.add('active');
             document.getElementById('toggleAudioBtn').classList.remove('inactive');
             document.getElementById('toggleVideoBtn').classList.add('active');
@@ -618,19 +635,30 @@ MESSENGER_HTML_PC = '''
 
         async function startWebRTC(isAnswerer = false) {
             try {
-                // Запрашиваем только аудио по умолчанию, видео опционально
+                console.log('Starting WebRTC connection...');
+                
+                // Запрашиваем медиа с улучшенными настройками
                 localStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true, // Запрашиваем доступ к камере, но выключаем её
-                    audio: true 
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30 }
+                    },
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
                 });
                 
-                // Выключаем видео сразу после получения потока
+                console.log('Media stream obtained:', localStream.getTracks().length, 'tracks');
+                
+                // Выключаем видео по умолчанию
                 const videoTracks = localStream.getVideoTracks();
                 if (videoTracks.length > 0) {
                     videoTracks[0].enabled = false;
                     isVideoEnabled = false;
                     
-                    // Обновляем интерфейс
                     const localVideo = document.getElementById('localVideo');
                     const localVideoPlaceholder = document.getElementById('localVideoPlaceholder');
                     const toggleVideoBtn = document.getElementById('toggleVideoBtn');
@@ -643,20 +671,34 @@ MESSENGER_HTML_PC = '''
                 
                 document.getElementById('localVideo').srcObject = localStream;
                 
+                // Создаем новое соединение
                 peerConnection = new RTCPeerConnection(configuration);
-                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+                console.log('PeerConnection created');
                 
+                // Добавляем треки в соединение
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                    console.log('Added track:', track.kind);
+                });
+                
+                // Обработчик входящих потоков
                 peerConnection.ontrack = (event) => {
+                    console.log('Received remote track:', event.streams.length, 'streams');
                     const remoteVideo = document.getElementById('remoteVideo');
                     const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
                     
-                    remoteVideo.srcObject = event.streams[0];
-                    remoteVideo.style.display = 'block';
-                    remoteVideoPlaceholder.style.display = 'none';
+                    if (event.streams && event.streams[0]) {
+                        remoteVideo.srcObject = event.streams[0];
+                        remoteVideo.style.display = 'block';
+                        remoteVideoPlaceholder.style.display = 'none';
+                        console.log('Remote video stream set');
+                    }
                 };
                 
+                // Обработчик ICE кандидатов
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate && currentContact) {
+                        console.log('Sending ICE candidate');
                         socket.emit('webrtc_ice_candidate', {
                             to_user_id: currentContact.id,
                             candidate: event.candidate
@@ -664,10 +706,32 @@ MESSENGER_HTML_PC = '''
                     }
                 };
                 
+                // Обработчик изменения состояния соединения
+                peerConnection.onconnectionstatechange = () => {
+                    console.log('Connection state:', peerConnection.connectionState);
+                };
+                
+                // Обработчик изменения ICE состояния
+                peerConnection.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state:', peerConnection.iceConnectionState);
+                };
+                
                 if (!isAnswerer) {
-                    const offer = await peerConnection.createOffer();
+                    // Создаем оффер
+                    const offer = await peerConnection.createOffer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: true
+                    });
+                    console.log('Offer created');
+                    
                     await peerConnection.setLocalDescription(offer);
-                    socket.emit('webrtc_offer', { to_user_id: currentContact.id, offer: offer });
+                    console.log('Local description set');
+                    
+                    socket.emit('webrtc_offer', { 
+                        to_user_id: currentContact.id, 
+                        offer: offer 
+                    });
+                    console.log('Offer sent to', currentContact.id);
                 }
                 
             } catch (error) {
@@ -690,20 +754,17 @@ MESSENGER_HTML_PC = '''
         });
 
         socket.on('incoming_call', (data) => {
+            console.log('Incoming call from:', data.from_username);
             showIncomingCallWindow(data.from_username, data.call_id);
         });
 
         socket.on('call_accepted', (data) => {
-            startWebRTC(false);
+            console.log('Call accepted by remote user');
+            // Для инициатора звонка не нужно запускать WebRTC заново
         });
 
         socket.on('call_rejected', () => {
             alert('Звонок отклонен');
-            document.getElementById('activeCallWindow').style.display = 'none';
-            stopCallTimer();
-        });
-
-        socket.on('call_ended', () => {
             document.getElementById('activeCallWindow').style.display = 'none';
             stopCallTimer();
             if (localStream) {
@@ -712,21 +773,64 @@ MESSENGER_HTML_PC = '''
             }
         });
 
-        socket.on('webrtc_offer', async (data) => {
+        socket.on('call_ended', () => {
+            console.log('Call ended by remote user');
+            document.getElementById('activeCallWindow').style.display = 'none';
+            stopCallTimer();
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
             if (peerConnection) {
-                await peerConnection.setRemoteDescription(data.offer);
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                socket.emit('webrtc_answer', { to_user_id: data.from_user_id, answer: answer });
+                peerConnection.close();
+                peerConnection = null;
+            }
+        });
+
+        socket.on('webrtc_offer', async (data) => {
+            console.log('Received WebRTC offer from:', data.from_user_id);
+            if (peerConnection && currentContact && data.from_user_id === currentContact.id) {
+                try {
+                    await peerConnection.setRemoteDescription(data.offer);
+                    console.log('Remote description set from offer');
+                    
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    console.log('Answer created and local description set');
+                    
+                    socket.emit('webrtc_answer', { 
+                        to_user_id: data.from_user_id, 
+                        answer: answer 
+                    });
+                    console.log('Answer sent to', data.from_user_id);
+                } catch (error) {
+                    console.error('Error handling offer:', error);
+                }
             }
         });
 
         socket.on('webrtc_answer', async (data) => {
-            if (peerConnection) await peerConnection.setRemoteDescription(data.answer);
+            console.log('Received WebRTC answer from:', data.from_user_id);
+            if (peerConnection && currentContact && data.from_user_id === currentContact.id) {
+                try {
+                    await peerConnection.setRemoteDescription(data.answer);
+                    console.log('Remote description set from answer');
+                } catch (error) {
+                    console.error('Error handling answer:', error);
+                }
+            }
         });
 
         socket.on('webrtc_ice_candidate', async (data) => {
-            if (peerConnection) await peerConnection.addIceCandidate(data.candidate);
+            console.log('Received ICE candidate from:', data.from_user_id);
+            if (peerConnection && currentContact && data.from_user_id === currentContact.id) {
+                try {
+                    await peerConnection.addIceCandidate(data.candidate);
+                    console.log('ICE candidate added');
+                } catch (error) {
+                    console.error('Error adding ICE candidate:', error);
+                }
+            }
         });
 
         socket.on('user_online', (data) => {
@@ -745,7 +849,7 @@ MESSENGER_HTML_PC = '''
 </html>
 '''
 
-# Шаблон для мобильных устройств
+# Шаблон для мобильных устройств (с аналогичными исправлениями WebRTC)
 MESSENGER_HTML_MOBILE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -1035,10 +1139,20 @@ MESSENGER_HTML_MOBILE = '''
         let localStream = null;
         let peerConnection = null;
         let isAudioEnabled = true;
-        let isVideoEnabled = false; // Камера выключена по умолчанию
+        let isVideoEnabled = false;
         let callStartTime = null;
         let callTimerInterval = null;
-        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        
+        // Улучшенная конфигурация WebRTC
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
+            ]
+        };
 
         function showContacts() {
             document.getElementById('contactsListContainer').classList.remove('hidden');
@@ -1234,8 +1348,15 @@ MESSENGER_HTML_MOBILE = '''
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
             currentCallId = null;
-            // Сбрасываем состояние кнопок
+            resetControlButtons();
+        }
+
+        function resetControlButtons() {
             document.getElementById('toggleAudioBtn').classList.add('active');
             document.getElementById('toggleAudioBtn').classList.remove('inactive');
             document.getElementById('toggleVideoBtn').classList.remove('active');
@@ -1246,19 +1367,30 @@ MESSENGER_HTML_MOBILE = '''
 
         async function startWebRTC(isAnswerer = false) {
             try {
-                // Запрашиваем только аудио по умолчанию, видео опционально
+                console.log('Starting WebRTC connection...');
+                
+                // Запрашиваем медиа с улучшенными настройками
                 localStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true, // Запрашиваем доступ к камере, но выключаем её
-                    audio: true 
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30 }
+                    },
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
                 });
                 
-                // Выключаем видео сразу после получения потока
+                console.log('Media stream obtained:', localStream.getTracks().length, 'tracks');
+                
+                // Выключаем видео по умолчанию
                 const videoTracks = localStream.getVideoTracks();
                 if (videoTracks.length > 0) {
                     videoTracks[0].enabled = false;
                     isVideoEnabled = false;
                     
-                    // Обновляем интерфейс
                     const localVideo = document.getElementById('localVideo');
                     const localVideoPlaceholder = document.getElementById('localVideoPlaceholder');
                     const toggleVideoBtn = document.getElementById('toggleVideoBtn');
@@ -1271,20 +1403,34 @@ MESSENGER_HTML_MOBILE = '''
                 
                 document.getElementById('localVideo').srcObject = localStream;
                 
+                // Создаем новое соединение
                 peerConnection = new RTCPeerConnection(configuration);
-                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+                console.log('PeerConnection created');
                 
+                // Добавляем треки в соединение
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                    console.log('Added track:', track.kind);
+                });
+                
+                // Обработчик входящих потоков
                 peerConnection.ontrack = (event) => {
+                    console.log('Received remote track:', event.streams.length, 'streams');
                     const remoteVideo = document.getElementById('remoteVideo');
                     const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
                     
-                    remoteVideo.srcObject = event.streams[0];
-                    remoteVideo.style.display = 'block';
-                    remoteVideoPlaceholder.style.display = 'none';
+                    if (event.streams && event.streams[0]) {
+                        remoteVideo.srcObject = event.streams[0];
+                        remoteVideo.style.display = 'block';
+                        remoteVideoPlaceholder.style.display = 'none';
+                        console.log('Remote video stream set');
+                    }
                 };
                 
+                // Обработчик ICE кандидатов
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate && currentContact) {
+                        console.log('Sending ICE candidate');
                         socket.emit('webrtc_ice_candidate', {
                             to_user_id: currentContact.id,
                             candidate: event.candidate
@@ -1292,10 +1438,32 @@ MESSENGER_HTML_MOBILE = '''
                     }
                 };
                 
+                // Обработчик изменения состояния соединения
+                peerConnection.onconnectionstatechange = () => {
+                    console.log('Connection state:', peerConnection.connectionState);
+                };
+                
+                // Обработчик изменения ICE состояния
+                peerConnection.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state:', peerConnection.iceConnectionState);
+                };
+                
                 if (!isAnswerer) {
-                    const offer = await peerConnection.createOffer();
+                    // Создаем оффер
+                    const offer = await peerConnection.createOffer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: true
+                    });
+                    console.log('Offer created');
+                    
                     await peerConnection.setLocalDescription(offer);
-                    socket.emit('webrtc_offer', { to_user_id: currentContact.id, offer: offer });
+                    console.log('Local description set');
+                    
+                    socket.emit('webrtc_offer', { 
+                        to_user_id: currentContact.id, 
+                        offer: offer 
+                    });
+                    console.log('Offer sent to', currentContact.id);
                 }
                 
             } catch (error) {
@@ -1318,20 +1486,17 @@ MESSENGER_HTML_MOBILE = '''
         });
 
         socket.on('incoming_call', (data) => {
+            console.log('Incoming call from:', data.from_username);
             showIncomingCallWindow(data.from_username, data.call_id);
         });
 
         socket.on('call_accepted', (data) => {
-            startWebRTC(false);
+            console.log('Call accepted by remote user');
+            // Для инициатора звонка не нужно запускать WebRTC заново
         });
 
         socket.on('call_rejected', () => {
             alert('Звонок отклонен');
-            document.getElementById('activeCallWindow').style.display = 'none';
-            stopCallTimer();
-        });
-
-        socket.on('call_ended', () => {
             document.getElementById('activeCallWindow').style.display = 'none';
             stopCallTimer();
             if (localStream) {
@@ -1340,21 +1505,64 @@ MESSENGER_HTML_MOBILE = '''
             }
         });
 
-        socket.on('webrtc_offer', async (data) => {
+        socket.on('call_ended', () => {
+            console.log('Call ended by remote user');
+            document.getElementById('activeCallWindow').style.display = 'none';
+            stopCallTimer();
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
             if (peerConnection) {
-                await peerConnection.setRemoteDescription(data.offer);
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                socket.emit('webrtc_answer', { to_user_id: data.from_user_id, answer: answer });
+                peerConnection.close();
+                peerConnection = null;
+            }
+        });
+
+        socket.on('webrtc_offer', async (data) => {
+            console.log('Received WebRTC offer from:', data.from_user_id);
+            if (peerConnection && currentContact && data.from_user_id === currentContact.id) {
+                try {
+                    await peerConnection.setRemoteDescription(data.offer);
+                    console.log('Remote description set from offer');
+                    
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    console.log('Answer created and local description set');
+                    
+                    socket.emit('webrtc_answer', { 
+                        to_user_id: data.from_user_id, 
+                        answer: answer 
+                    });
+                    console.log('Answer sent to', data.from_user_id);
+                } catch (error) {
+                    console.error('Error handling offer:', error);
+                }
             }
         });
 
         socket.on('webrtc_answer', async (data) => {
-            if (peerConnection) await peerConnection.setRemoteDescription(data.answer);
+            console.log('Received WebRTC answer from:', data.from_user_id);
+            if (peerConnection && currentContact && data.from_user_id === currentContact.id) {
+                try {
+                    await peerConnection.setRemoteDescription(data.answer);
+                    console.log('Remote description set from answer');
+                } catch (error) {
+                    console.error('Error handling answer:', error);
+                }
+            }
         });
 
         socket.on('webrtc_ice_candidate', async (data) => {
-            if (peerConnection) await peerConnection.addIceCandidate(data.candidate);
+            console.log('Received ICE candidate from:', data.from_user_id);
+            if (peerConnection && currentContact && data.from_user_id === currentContact.id) {
+                try {
+                    await peerConnection.addIceCandidate(data.candidate);
+                    console.log('ICE candidate added');
+                } catch (error) {
+                    console.error('Error adding ICE candidate:', error);
+                }
+            }
         });
 
         socket.on('user_online', (data) => {
