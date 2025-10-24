@@ -120,7 +120,7 @@ def init_db():
 
 init_db()
 
-# HTML шаблоны (оставляем как есть)
+# HTML шаблоны
 LOGIN_HTML = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -268,7 +268,7 @@ REGISTER_HTML = '''
 </html>
 '''
 
-# Шаблон для ПК с исправленными звонками
+# Шаблон для ПК с рабочими звонками
 MESSENGER_HTML_PC = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -632,9 +632,10 @@ MESSENGER_HTML_PC = '''
 
         function startCall() {
             if (currentContact) {
+                console.log('Начинаем звонок пользователю:', currentContact.username);
                 socket.emit('start_call', { to_user_id: currentContact.id });
                 showActiveCallWindow();
-                startWebRTC(false);
+                initializeWebRTC(false);
             }
         }
 
@@ -646,13 +647,15 @@ MESSENGER_HTML_PC = '''
         }
 
         function acceptCall() {
+            console.log('Принимаем звонок:', currentCallId);
             socket.emit('accept_call', { call_id: currentCallId });
             document.getElementById('incomingCallWindow').style.display = 'none';
             showActiveCallWindow();
-            startWebRTC(true);
+            initializeWebRTC(true);
         }
 
         function rejectCall() {
+            console.log('Отклоняем звонок:', currentCallId);
             socket.emit('reject_call', { call_id: currentCallId });
             document.getElementById('incomingCallWindow').style.display = 'none';
             currentCallId = null;
@@ -731,6 +734,7 @@ MESSENGER_HTML_PC = '''
         }
 
         function endCall() {
+            console.log('Завершаем звонок');
             socket.emit('end_call', { call_id: currentCallId });
             document.getElementById('activeCallWindow').style.display = 'none';
             stopCallTimer();
@@ -755,9 +759,9 @@ MESSENGER_HTML_PC = '''
             isVideoEnabled = false;
         }
 
-        async function startWebRTC(isAnswerer = false) {
+        async function initializeWebRTC(isAnswerer = false) {
             try {
-                console.log('Starting WebRTC connection...');
+                console.log('Инициализация WebRTC, isAnswerer:', isAnswerer);
                 
                 // Запрашиваем медиа
                 localStream = await navigator.mediaDevices.getUserMedia({ 
@@ -765,7 +769,7 @@ MESSENGER_HTML_PC = '''
                     audio: true 
                 });
                 
-                console.log('Media stream obtained');
+                console.log('Медиа поток получен');
                 
                 // Выключаем видео по умолчанию
                 const videoTracks = localStream.getVideoTracks();
@@ -787,17 +791,17 @@ MESSENGER_HTML_PC = '''
                 
                 // Создаем новое соединение
                 peerConnection = new RTCPeerConnection(configuration);
-                console.log('PeerConnection created');
+                console.log('PeerConnection создан');
                 
                 // Добавляем треки в соединение
                 localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, localStream);
-                    console.log('Added track:', track.kind);
+                    console.log('Добавлен трек:', track.kind);
                 });
                 
                 // Обработчик входящих потоков
                 peerConnection.ontrack = (event) => {
-                    console.log('Received remote track');
+                    console.log('Получен удаленный трек');
                     const remoteVideo = document.getElementById('remoteVideo');
                     const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
                     
@@ -805,14 +809,14 @@ MESSENGER_HTML_PC = '''
                         remoteVideo.srcObject = event.streams[0];
                         remoteVideo.style.display = 'block';
                         remoteVideoPlaceholder.style.display = 'none';
-                        console.log('Remote video stream set');
+                        console.log('Удаленное видео установлено');
                     }
                 };
                 
                 // Обработчик ICE кандидатов
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate && currentContact) {
-                        console.log('Sending ICE candidate');
+                        console.log('Отправляем ICE кандидат');
                         socket.emit('webrtc_ice_candidate', {
                             to_user_id: currentContact.id,
                             candidate: event.candidate
@@ -826,20 +830,20 @@ MESSENGER_HTML_PC = '''
                         offerToReceiveAudio: true,
                         offerToReceiveVideo: true
                     });
-                    console.log('Offer created');
+                    console.log('Оффер создан');
                     
                     await peerConnection.setLocalDescription(offer);
-                    console.log('Local description set');
+                    console.log('Локальное описание установлено');
                     
                     socket.emit('webrtc_offer', { 
                         to_user_id: currentContact.id, 
                         offer: offer 
                     });
-                    console.log('Offer sent');
+                    console.log('Оффер отправлен');
                 }
                 
             } catch (error) {
-                console.error('Error starting WebRTC:', error);
+                console.error('Ошибка инициализации WebRTC:', error);
                 alert('Ошибка при запуске звонка: ' + error.message);
             }
         }
@@ -858,15 +862,17 @@ MESSENGER_HTML_PC = '''
         });
 
         socket.on('incoming_call', (data) => {
-            console.log('Incoming call from:', data.from_username);
+            console.log('Входящий звонок от:', data.from_username);
             showIncomingCallWindow(data.from_username, data.call_id);
         });
 
         socket.on('call_accepted', (data) => {
-            console.log('Call accepted by remote user');
+            console.log('Звонок принят удаленным пользователем');
+            // Для инициатора звонка не нужно запускать WebRTC заново
         });
 
         socket.on('call_rejected', () => {
+            console.log('Звонок отклонен');
             alert('Звонок отклонен');
             document.getElementById('activeCallWindow').style.display = 'none';
             stopCallTimer();
@@ -877,7 +883,7 @@ MESSENGER_HTML_PC = '''
         });
 
         socket.on('call_ended', () => {
-            console.log('Call ended by remote user');
+            console.log('Звонок завершен удаленным пользователем');
             document.getElementById('activeCallWindow').style.display = 'none';
             stopCallTimer();
             if (localStream) {
@@ -891,50 +897,50 @@ MESSENGER_HTML_PC = '''
         });
 
         socket.on('webrtc_offer', async (data) => {
-            console.log('Received WebRTC offer from:', data.from_user_id);
+            console.log('Получен WebRTC оффер от:', data.from_user_id);
             if (!peerConnection && currentContact && data.from_user_id === currentContact.id) {
-                await startWebRTC(true);
+                await initializeWebRTC(true);
             }
             if (peerConnection) {
                 try {
                     await peerConnection.setRemoteDescription(data.offer);
-                    console.log('Remote description set from offer');
+                    console.log('Удаленное описание установлено из оффера');
                     
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
-                    console.log('Answer created and local description set');
+                    console.log('Ответ создан и локальное описание установлено');
                     
                     socket.emit('webrtc_answer', { 
                         to_user_id: data.from_user_id, 
                         answer: answer 
                     });
-                    console.log('Answer sent');
+                    console.log('Ответ отправлен');
                 } catch (error) {
-                    console.error('Error handling offer:', error);
+                    console.error('Ошибка обработки оффера:', error);
                 }
             }
         });
 
         socket.on('webrtc_answer', async (data) => {
-            console.log('Received WebRTC answer from:', data.from_user_id);
+            console.log('Получен WebRTC ответ от:', data.from_user_id);
             if (peerConnection) {
                 try {
                     await peerConnection.setRemoteDescription(data.answer);
-                    console.log('Remote description set from answer');
+                    console.log('Удаленное описание установлено из ответа');
                 } catch (error) {
-                    console.error('Error handling answer:', error);
+                    console.error('Ошибка обработки ответа:', error);
                 }
             }
         });
 
         socket.on('webrtc_ice_candidate', async (data) => {
-            console.log('Received ICE candidate from:', data.from_user_id);
+            console.log('Получен ICE кандидат от:', data.from_user_id);
             if (peerConnection) {
                 try {
                     await peerConnection.addIceCandidate(data.candidate);
-                    console.log('ICE candidate added');
+                    console.log('ICE кандидат добавлен');
                 } catch (error) {
-                    console.error('Error adding ICE candidate:', error);
+                    console.error('Ошибка добавления ICE кандидата:', error);
                 }
             }
         });
@@ -956,7 +962,7 @@ MESSENGER_HTML_PC = '''
 </html>
 '''
 
-# Шаблон для мобильных устройств (упрощенный)
+# Шаблон для мобильных устройств с звонками
 MESSENGER_HTML_MOBILE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -970,7 +976,7 @@ MESSENGER_HTML_MOBILE = '''
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
+            height: 100vh; margin: 0; padding: 0;
         }
         .container { 
             width: 100%; height: 100%; background: white;
@@ -985,15 +991,102 @@ MESSENGER_HTML_MOBILE = '''
                  display: flex; align-items: center; justify-content: center; color: white; }
         .logout-btn { 
             background: none; border: none; color: #6c757d; cursor: pointer;
-            padding: 5px 10px; border-radius: 5px; font-size: 14px;
+            padding: 8px 12px; border-radius: 5px; font-size: 14px;
         }
-        .contacts { flex: 1; overflow-y: auto; padding: 10px; }
+        .contacts { 
+            flex: 1; overflow-y: auto; padding: 10px;
+            background: #f8f9fa;
+        }
         .contact { 
-            padding: 15px; border-radius: 10px; margin-bottom: 5px; cursor: pointer;
-            display: flex; align-items: center; gap: 10px;
+            padding: 15px; border-radius: 10px; margin-bottom: 8px; cursor: pointer;
+            display: flex; align-items: center; gap: 12px; 
+            background: white; border: 1px solid #e9ecef;
         }
         .contact.active { background: #667eea; color: white; }
-        .loading { text-align: center; color: #6c757d; padding: 20px; }
+        .online-indicator { 
+            width: 10px; height: 10px; border-radius: 50%; background: #28a745;
+            margin-left: auto;
+        }
+        .loading { 
+            text-align: center; color: #6c757d; padding: 40px 20px;
+            font-size: 16px;
+        }
+        .chat-area {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: white; z-index: 1000; display: none; flex-direction: column;
+        }
+        .chat-header {
+            padding: 15px; background: white; border-bottom: 1px solid #e9ecef;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .back-btn {
+            background: none; border: none; font-size: 20px; cursor: pointer;
+            padding: 5px;
+        }
+        .call-btn {
+            background: #28a745; color: white; border: none; padding: 8px 15px;
+            border-radius: 20px; cursor: pointer; margin-left: auto;
+        }
+        .messages {
+            flex: 1; padding: 15px; overflow-y: auto; background: #f8f9fa;
+        }
+        .input-area {
+            padding: 15px; background: white; border-top: 1px solid #e9ecef;
+            display: flex; gap: 10px;
+        }
+        .message-input {
+            flex: 1; padding: 12px; border: 1px solid #e9ecef; border-radius: 20px;
+            font-size: 16px;
+        }
+        .send-btn {
+            background: #667eea; color: white; border: none; padding: 12px 20px;
+            border-radius: 20px; cursor: pointer;
+        }
+        .call-window {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #1a1a1a; z-index: 2000; display: none; flex-direction: column;
+        }
+        .call-header {
+            padding: 20px; color: white; text-align: center;
+            background: rgba(0,0,0,0.5);
+        }
+        .video-container {
+            flex: 1; display: flex; flex-direction: column; justify-content: center;
+            align-items: center; position: relative; padding: 10px;
+        }
+        .video-wrapper {
+            position: relative; margin: 5px; border-radius: 10px;
+            overflow: hidden; background: #000; width: 100%; height: 40vh;
+        }
+        video {
+            width: 100%; height: 100%; object-fit: cover;
+        }
+        .call-controls {
+            padding: 20px; display: flex; justify-content: center; gap: 15px;
+            background: rgba(0,0,0,0.5);
+        }
+        .control-btn {
+            width: 60px; height: 60px; border-radius: 50%; border: none;
+            cursor: pointer; display: flex; align-items: center;
+            justify-content: center; font-size: 20px;
+        }
+        .control-btn.end-call { background: #dc3545; color: white; }
+        .incoming-call-window {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 2001;
+            display: none; flex-direction: column; justify-content: center;
+            align-items: center; color: white;
+        }
+        .incoming-call-buttons {
+            display: flex; gap: 40px; justify-content: center; margin-top: 40px;
+        }
+        .incoming-call-btn {
+            width: 70px; height: 70px; border-radius: 50%; border: none;
+            cursor: pointer; display: flex; align-items: center;
+            justify-content: center; font-size: 28px;
+        }
+        .incoming-call-btn.accept { background: #28a745; color: white; }
+        .incoming-call-btn.reject { background: #dc3545; color: white; }
     </style>
 </head>
 <body>
@@ -1014,7 +1107,62 @@ MESSENGER_HTML_MOBILE = '''
         </div>
     </div>
 
+    <div class="chat-area" id="chatArea">
+        <div class="chat-header">
+            <button class="back-btn" onclick="closeChat()">←</button>
+            <div id="currentChatUser" style="font-weight: bold; font-size: 16px;"></div>
+            <button class="call-btn" id="callButton" style="display: none;">📞</button>
+        </div>
+        
+        <div class="messages" id="messagesContainer"></div>
+        
+        <div class="input-area" id="inputArea">
+            <input type="text" class="message-input" id="messageInput" placeholder="Введите сообщение...">
+            <button class="send-btn" id="sendButton">➤</button>
+        </div>
+    </div>
+
+    <!-- Окно звонка для мобильных -->
+    <div class="call-window" id="activeCallWindow">
+        <div class="call-header">
+            <h3 id="callStatus">Идет звонок</h3>
+            <div id="callTimer">00:00</div>
+        </div>
+        
+        <div class="video-container">
+            <div class="video-wrapper">
+                <video id="remoteVideo" autoplay></video>
+            </div>
+            <div class="video-wrapper" style="width: 120px; height: 160px; position: absolute; bottom: 80px; right: 10px;">
+                <video id="localVideo" autoplay muted></video>
+            </div>
+        </div>
+        
+        <div class="call-controls">
+            <button class="control-btn end-call" onclick="endCall()">
+                ✖
+            </button>
+        </div>
+    </div>
+
+    <!-- Окно входящего звонка -->
+    <div class="incoming-call-window" id="incomingCallWindow">
+        <div style="text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 20px;">📞</div>
+            <h2>Входящий звонок</h2>
+            <div id="callerName" style="font-size: 24px; margin: 20px 0;"></div>
+        </div>
+        <div class="incoming-call-buttons">
+            <button class="incoming-call-btn accept" onclick="acceptCall()">📞</button>
+            <button class="incoming-call-btn reject" onclick="rejectCall()">✖</button>
+        </div>
+    </div>
+
     <script>
+        const socket = io();
+        let currentContact = null;
+        let currentCallId = null;
+
         async function loadContacts() {
             try {
                 const response = await fetch('/api/users');
@@ -1027,18 +1175,182 @@ MESSENGER_HTML_MOBILE = '''
                 }
                 
                 contactsList.innerHTML = contacts.map(contact => `
-                    <div class="contact" onclick="alert('Выбран: ${contact.username}')">
+                    <div class="contact" onclick="selectContact(${contact.id}, '${contact.username}')">
                         <div class="avatar">${contact.username[0].toUpperCase()}</div>
-                        <div>${contact.username}</div>
+                        <div style="flex: 1;">
+                            <div style="font-weight: bold;">${contact.username}</div>
+                        </div>
+                        <div class="online-indicator" style="display: none;" id="online-${contact.id}"></div>
                     </div>
                 `).join('');
                 
             } catch (error) {
+                console.error('Ошибка загрузки контактов:', error);
                 document.getElementById('contactsList').innerHTML = 
-                    '<div class="loading">Ошибка загрузки</div>';
+                    '<div class="loading">Ошибка загрузки контактов</div>';
             }
         }
 
+        function selectContact(userId, username) {
+            currentContact = { id: userId, username: username };
+            document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            
+            document.getElementById('currentChatUser').textContent = username;
+            document.getElementById('callButton').style.display = 'block';
+            document.getElementById('chatArea').style.display = 'flex';
+            loadMessages(userId);
+        }
+
+        function closeChat() {
+            document.getElementById('chatArea').style.display = 'none';
+            document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
+            currentContact = null;
+        }
+
+        async function loadMessages(userId) {
+            try {
+                const response = await fetch(`/api/messages/${userId}`);
+                const messages = await response.json();
+                const messagesContainer = document.getElementById('messagesContainer');
+                
+                messagesContainer.innerHTML = messages.map(msg => `
+                    <div style="margin-bottom: 15px; display: flex; flex-direction: column; align-items: ${msg.from === 'Вы' ? 'flex-end' : 'flex-start'}">
+                        <div style="background: ${msg.from === 'Вы' ? '#667eea' : 'white'}; color: ${msg.from === 'Вы' ? 'white' : 'black'}; 
+                                    padding: 12px 16px; border-radius: 15px; max-width: 80%; 
+                                    border: ${msg.from === 'Вы' ? 'none' : '1px solid #e9ecef'};
+                                    ${msg.from === 'Вы' ? 'border-bottom-right-radius: 5px;' : 'border-bottom-left-radius: 5px;'}">
+                            <div>${msg.message}</div>
+                            <div style="font-size: 11px; opacity: 0.7; margin-top: 5px; text-align: right;">${msg.time}</div>
+                        </div>
+                    </div>
+                `).join('');
+                
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            } catch (error) {
+                console.error('Ошибка загрузки сообщений:', error);
+            }
+        }
+
+        document.getElementById('sendButton').addEventListener('click', sendMessage);
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (message && currentContact) {
+                socket.emit('send_message', {
+                    to_user_id: currentContact.id,
+                    message: message
+                });
+                
+                const messagesContainer = document.getElementById('messagesContainer');
+                messagesContainer.innerHTML += `
+                    <div style="margin-bottom: 15px; display: flex; flex-direction: column; align-items: flex-end">
+                        <div style="background: #667eea; color: white; padding: 12px 16px; border-radius: 15px; max-width: 80%; border-bottom-right-radius: 5px;">
+                            <div>${message}</div>
+                            <div style="font-size: 11px; opacity: 0.7; margin-top: 5px; text-align: right;">${new Date().toLocaleTimeString()}</div>
+                        </div>
+                    </div>
+                `;
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                messageInput.value = '';
+            }
+        }
+
+        document.getElementById('callButton').addEventListener('click', startCall);
+
+        function startCall() {
+            if (currentContact) {
+                console.log('Начинаем звонок пользователю:', currentContact.username);
+                socket.emit('start_call', { to_user_id: currentContact.id });
+                showActiveCallWindow();
+            }
+        }
+
+        function showIncomingCallWindow(callerName, callId) {
+            currentCallId = callId;
+            document.getElementById('callerName').textContent = callerName;
+            document.getElementById('incomingCallWindow').style.display = 'flex';
+        }
+
+        function acceptCall() {
+            console.log('Принимаем звонок:', currentCallId);
+            socket.emit('accept_call', { call_id: currentCallId });
+            document.getElementById('incomingCallWindow').style.display = 'none';
+            showActiveCallWindow();
+        }
+
+        function rejectCall() {
+            console.log('Отклоняем звонок:', currentCallId);
+            socket.emit('reject_call', { call_id: currentCallId });
+            document.getElementById('incomingCallWindow').style.display = 'none';
+            currentCallId = null;
+        }
+
+        function showActiveCallWindow() {
+            document.getElementById('activeCallWindow').style.display = 'flex';
+            if (currentContact) {
+                document.getElementById('callStatus').textContent = `Идет звонок с ${currentContact.username}`;
+            }
+        }
+
+        function endCall() {
+            console.log('Завершаем звонок');
+            socket.emit('end_call', { call_id: currentCallId });
+            document.getElementById('activeCallWindow').style.display = 'none';
+            currentCallId = null;
+        }
+
+        socket.on('receive_message', (data) => {
+            if (currentContact && data.from_user_id === currentContact.id) {
+                const messagesContainer = document.getElementById('messagesContainer');
+                messagesContainer.innerHTML += `
+                    <div style="margin-bottom: 15px; display: flex; flex-direction: column; align-items: flex-start">
+                        <div style="background: white; padding: 12px 16px; border-radius: 15px; max-width: 80%; border: 1px solid #e9ecef; border-bottom-left-radius: 5px;">
+                            <div>${data.message}</div>
+                            <div style="font-size: 11px; opacity: 0.7; margin-top: 5px; text-align: right;">${data.timestamp}</div>
+                        </div>
+                    </div>
+                `;
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        });
+
+        socket.on('incoming_call', (data) => {
+            console.log('Входящий звонок от:', data.from_username);
+            showIncomingCallWindow(data.from_username, data.call_id);
+        });
+
+        socket.on('call_accepted', (data) => {
+            console.log('Звонок принят удаленным пользователем');
+        });
+
+        socket.on('call_rejected', () => {
+            console.log('Звонок отклонен');
+            alert('Звонок отклонен');
+            document.getElementById('activeCallWindow').style.display = 'none';
+        });
+
+        socket.on('call_ended', () => {
+            console.log('Звонок завершен удаленным пользователем');
+            document.getElementById('activeCallWindow').style.display = 'none';
+        });
+
+        socket.on('user_online', (data) => {
+            const indicator = document.getElementById(`online-${data.user_id}`);
+            if (indicator) indicator.style.display = 'block';
+        });
+
+        socket.on('user_offline', (data) => {
+            const indicator = document.getElementById(`online-${data.user_id}`);
+            if (indicator) indicator.style.display = 'none';
+        });
+
+        // Загружаем контакты при загрузке страницы
         document.addEventListener('DOMContentLoaded', loadContacts);
     </script>
 </body>
@@ -1085,9 +1397,14 @@ def messenger():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
+    # Определяем тип устройства
     user_agent = request.headers.get('User-Agent', '')
     is_mobile = is_mobile_device(user_agent)
     
+    print(f"User agent: {user_agent}")
+    print(f"Is mobile: {is_mobile}")
+    
+    # Выбираем соответствующий шаблон
     if is_mobile:
         return render_template_string(MESSENGER_HTML_MOBILE, username=session['username'])
     else:
@@ -1225,4 +1542,4 @@ def handle_webrtc_ice_candidate(data):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
