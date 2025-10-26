@@ -1,3 +1,5 @@
+[file name]: app.py
+[file content begin]
 from flask import Flask, render_template_string, request, jsonify, redirect, url_for, session, flash
 from flask_socketio import SocketIO, emit
 import json
@@ -18,7 +20,7 @@ def is_mobile_device(user_agent):
     user_agent_lower = user_agent.lower()
     return any(keyword in user_agent_lower for keyword in mobile_keywords)
 
-# HTML шаблоны (оставляю как были)
+# HTML шаблоны
 LOGIN_HTML = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -960,7 +962,7 @@ MESSENGER_HTML_PC = '''
         // Инициализация
         loadContacts();
 
-        // Функции для звонков (оставляю как есть)
+        // Функции для звонков
         document.getElementById('callButton').addEventListener('click', startCall);
 
         async function startCall() {
@@ -1024,9 +1026,22 @@ MESSENGER_HTML_PC = '''
         function showActiveCallWindow() {
             document.getElementById('activeCallWindow').style.display = 'flex';
             if (currentContact) {
-                document.getElementById('remoteUserName').textContent = currentContact.displayName;
-                document.getElementById('remoteUserNameText').textContent = currentContact.displayName;
-                document.getElementById('remoteUserAvatar').textContent = currentContact.displayName[0].toUpperCase();
+                // Используем только существующие элементы
+                const remoteUserNameElement = document.getElementById('remoteUserName');
+                if (remoteUserNameElement) {
+                    remoteUserNameElement.textContent = currentContact.displayName;
+                }
+                
+                // Убираем обращение к несуществующим элементам в мобильной версии
+                const remoteUserNameText = document.getElementById('remoteUserNameText');
+                const remoteUserAvatar = document.getElementById('remoteUserAvatar');
+                
+                if (remoteUserNameText) {
+                    remoteUserNameText.textContent = currentContact.displayName;
+                }
+                if (remoteUserAvatar) {
+                    remoteUserAvatar.textContent = currentContact.displayName[0].toUpperCase();
+                }
             }
             startCallTimer();
         }
@@ -1770,9 +1785,11 @@ MESSENGER_HTML_MOBILE = '''
         function showActiveCallWindow() {
             document.getElementById('activeCallWindow').style.display = 'flex';
             if (currentContact) {
-                document.getElementById('remoteUserName').textContent = currentContact.displayName;
-                document.getElementById('remoteUserNameText').textContent = currentContact.displayName;
-                document.getElementById('remoteUserAvatar').textContent = currentContact.displayName[0].toUpperCase();
+                // Используем только существующие элементы в мобильной версии
+                const remoteUserNameElement = document.getElementById('remoteUserName');
+                if (remoteUserNameElement) {
+                    remoteUserNameElement.textContent = currentContact.displayName;
+                }
             }
             startCallTimer();
         }
@@ -2405,3 +2422,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Starting server on port {port}")
     socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
+[file content end]
