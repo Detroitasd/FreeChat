@@ -1,8 +1,5 @@
-[file name]: app.py
-[file content begin]
 from flask import Flask, render_template_string, request, jsonify, redirect, url_for, session, flash
 from flask_socketio import SocketIO, emit
-import json
 import sqlite3
 import hashlib
 import secrets
@@ -2422,4 +2419,3 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Starting server on port {port}")
     socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
-[file content end]
