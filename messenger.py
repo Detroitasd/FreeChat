@@ -464,7 +464,7 @@ PROFILE_HTML = '''
 </html>
 '''
 
-# Шаблон для ПК
+# Шаблон для ПК с исправленным WebRTC
 MESSENGER_HTML_PC = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -825,6 +825,7 @@ MESSENGER_HTML_PC = '''
         let currentContact = null;
         let currentCallId = null;
         let localStream = null;
+        let remoteStream = null;
         let peerConnection = null;
         let isAudioEnabled = true;
         let isVideoEnabled = true;
@@ -979,11 +980,12 @@ MESSENGER_HTML_PC = '''
         async function requestMediaPermissions() {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true,
+                    video: { width: 1280, height: 720 },
                     audio: true 
                 });
                 
-                document.getElementById('localVideo').srcObject = localStream;
+                const localVideo = document.getElementById('localVideo');
+                localVideo.srcObject = localStream;
                 isAudioEnabled = true;
                 isVideoEnabled = true;
                 
@@ -1113,6 +1115,10 @@ MESSENGER_HTML_PC = '''
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
@@ -1128,16 +1134,20 @@ MESSENGER_HTML_PC = '''
                 
                 peerConnection = new RTCPeerConnection(configuration);
                 
+                // Добавляем локальные треки
                 localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, localStream);
                 });
                 
+                // Обработка удаленного потока
                 peerConnection.ontrack = (event) => {
+                    console.log('Received remote track:', event);
                     const remoteVideo = document.getElementById('remoteVideo');
                     const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
                     
                     if (event.streams && event.streams[0]) {
-                        remoteVideo.srcObject = event.streams[0];
+                        remoteStream = event.streams[0];
+                        remoteVideo.srcObject = remoteStream;
                         remoteVideo.style.display = 'block';
                         remoteVideoPlaceholder.style.display = 'none';
                     }
@@ -1153,8 +1163,13 @@ MESSENGER_HTML_PC = '''
                 };
                 
                 if (!isAnswerer) {
-                    const offer = await peerConnection.createOffer();
+                    // Создаем оффер
+                    const offer = await peerConnection.createOffer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: true
+                    });
                     await peerConnection.setLocalDescription(offer);
+                    
                     socket.emit('webrtc_offer', { 
                         to_user_id: currentContact.id, 
                         offer: offer 
@@ -1194,6 +1209,10 @@ MESSENGER_HTML_PC = '''
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
@@ -1203,9 +1222,10 @@ MESSENGER_HTML_PC = '''
         socket.on('webrtc_offer', async (data) => {
             if (peerConnection) {
                 try {
-                    await peerConnection.setRemoteDescription(data.offer);
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
+                    
                     socket.emit('webrtc_answer', { 
                         to_user_id: data.from_user_id, 
                         answer: answer 
@@ -1217,9 +1237,9 @@ MESSENGER_HTML_PC = '''
         });
 
         socket.on('webrtc_answer', async (data) => {
-            if (peerConnection) {
+            if (peerConnection && peerConnection.signalingState !== 'stable') {
                 try {
-                    await peerConnection.setRemoteDescription(data.answer);
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
                 } catch (error) {
                     console.error('Error handling WebRTC answer:', error);
                 }
@@ -1229,7 +1249,7 @@ MESSENGER_HTML_PC = '''
         socket.on('webrtc_ice_candidate', async (data) => {
             if (peerConnection) {
                 try {
-                    await peerConnection.addIceCandidate(data.candidate);
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
                 } catch (error) {
                     console.error('Error adding ICE candidate:', error);
                 }
@@ -1240,7 +1260,7 @@ MESSENGER_HTML_PC = '''
 </html>
 '''
 
-# Шаблон для мобильных устройств
+# Шаблон для мобильных устройств с исправленным WebRTC
 MESSENGER_HTML_MOBILE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -1574,6 +1594,7 @@ MESSENGER_HTML_MOBILE = '''
         let currentContact = null;
         let currentCallId = null;
         let localStream = null;
+        let remoteStream = null;
         let peerConnection = null;
         let isAudioEnabled = true;
         let isVideoEnabled = true;
@@ -1738,11 +1759,12 @@ MESSENGER_HTML_MOBILE = '''
         async function requestMediaPermissions() {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true,
+                    video: { width: 1280, height: 720 },
                     audio: true 
                 });
                 
-                document.getElementById('localVideo').srcObject = localStream;
+                const localVideo = document.getElementById('localVideo');
+                localVideo.srcObject = localStream;
                 isAudioEnabled = true;
                 isVideoEnabled = true;
                 
@@ -1861,6 +1883,10 @@ MESSENGER_HTML_MOBILE = '''
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
@@ -1876,16 +1902,20 @@ MESSENGER_HTML_MOBILE = '''
                 
                 peerConnection = new RTCPeerConnection(configuration);
                 
+                // Добавляем локальные треки
                 localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, localStream);
                 });
                 
+                // Обработка удаленного потока
                 peerConnection.ontrack = (event) => {
+                    console.log('Received remote track:', event);
                     const remoteVideo = document.getElementById('remoteVideo');
                     const remoteVideoPlaceholder = document.getElementById('remoteVideoPlaceholder');
                     
                     if (event.streams && event.streams[0]) {
-                        remoteVideo.srcObject = event.streams[0];
+                        remoteStream = event.streams[0];
+                        remoteVideo.srcObject = remoteStream;
                         remoteVideo.style.display = 'block';
                         remoteVideoPlaceholder.style.display = 'none';
                     }
@@ -1901,8 +1931,13 @@ MESSENGER_HTML_MOBILE = '''
                 };
                 
                 if (!isAnswerer) {
-                    const offer = await peerConnection.createOffer();
+                    // Создаем оффер
+                    const offer = await peerConnection.createOffer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: true
+                    });
                     await peerConnection.setLocalDescription(offer);
+                    
                     socket.emit('webrtc_offer', { 
                         to_user_id: currentContact.id, 
                         offer: offer 
@@ -1942,6 +1977,10 @@ MESSENGER_HTML_MOBILE = '''
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
@@ -1951,9 +1990,10 @@ MESSENGER_HTML_MOBILE = '''
         socket.on('webrtc_offer', async (data) => {
             if (peerConnection) {
                 try {
-                    await peerConnection.setRemoteDescription(data.offer);
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
+                    
                     socket.emit('webrtc_answer', { 
                         to_user_id: data.from_user_id, 
                         answer: answer 
@@ -1965,9 +2005,9 @@ MESSENGER_HTML_MOBILE = '''
         });
 
         socket.on('webrtc_answer', async (data) => {
-            if (peerConnection) {
+            if (peerConnection && peerConnection.signalingState !== 'stable') {
                 try {
-                    await peerConnection.setRemoteDescription(data.answer);
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
                 } catch (error) {
                     console.error('Error handling WebRTC answer:', error);
                 }
@@ -1977,7 +2017,7 @@ MESSENGER_HTML_MOBILE = '''
         socket.on('webrtc_ice_candidate', async (data) => {
             if (peerConnection) {
                 try {
-                    await peerConnection.addIceCandidate(data.candidate);
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
                 } catch (error) {
                     console.error('Error adding ICE candidate:', error);
                 }
